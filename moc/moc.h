@@ -171,6 +171,7 @@ struct ClassDef : BaseDef {
 
     bool hasQObject = false;
     bool hasQGadget = false;
+    bool hasQRemote = false;
 
     struct PluginData {
         QByteArray iid;

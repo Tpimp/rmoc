@@ -983,7 +983,12 @@ void Generator::generateMetacall()
         else
             fprintf(out, "            qt_static_metacall(this, _c, _id, _a);\n");
         fprintf(out, "        _id -= %d;\n    }", methodList.size());
-
+        if (cdef->hasQRemote){
+            fprintf(out, " else if (_c == QMetaObject::RemoteInvokeMetaMethod) {\n");
+            fprintf(out, "        if (_id < %d)\n", methodList.size());
+            fprintf(out, "            qt_static_metacall(this, _c, _id, _a);\n");
+            fprintf(out, "        _id -= %d;\n    }\n", methodList.size());
+        }
     }
 
     if (cdef->propertyList.size()) {
@@ -1189,7 +1194,15 @@ void Generator::generateStaticMetacall()
             fprintf(out, " else ");
         else
             fprintf(out, "    ");
-        fprintf(out, "if (_c == QMetaObject::InvokeMetaMethod) {\n");
+        fprintf(out, "if (_c == QMetaObject::InvokeMetaMethod");
+
+        if (cdef->hasQRemote) {
+            fprintf(out, " || _c == QMetaObject::RemoteInvokeMetaMethod) {\n");
+        }
+        else
+        {
+            fprintf(out, ") {\n");
+        }
         if (cdef->hasQObject) {
 #ifndef QT_NO_DEBUG
             fprintf(out, "        Q_ASSERT(staticMetaObject.cast(_o));\n");
@@ -1444,6 +1457,10 @@ void Generator::generateStaticMetacall()
                     } else if (!p.notify.isEmpty() && p.notifyId < -1) {
                         fprintf(out, "                Q_EMIT _t->%s();\n", p.notify.constData());
                     }
+                    if(cdef->hasQRemote)
+                    {
+                        fprintf(out,"                qt_remote_metacall(_o, QMetaObject::WriteProperty, %d, _a);\n", propindex);
+                    }
                     fprintf(out, "            }\n");
                     fprintf(out, "            break;\n");
                 }
@@ -1519,9 +1536,28 @@ void Generator::generateSignal(FunctionDef *def,int index)
 
     Q_ASSERT(!def->normalizedType.isEmpty());
     if (def->arguments.isEmpty() && def->normalizedType == "void" && !def->isPrivateSignal) {
-        fprintf(out, ")%s\n{\n"
-                "    QMetaObject::activate(%s, &staticMetaObject, %d, nullptr);\n"
-                "}\n", constQualifier, thisPtr.constData(), index);
+        if(cdef->hasQRemote){
+            if(def->tag.contains("Q_REMOTE")){
+                fprintf(out, ")%s\n{\n"
+                        "    QMetaObject::activate(%s, &staticMetaObject, %d, nullptr);\n", constQualifier, thisPtr.constData(), index);
+                fprintf(out, "    qt_remote_metacall(%s, QMetaObject::RemoteInvokeMetaMethod, %d,nullptr);\n}\n",
+                        thisPtr.constData(), index);
+            } else if(def->tag.contains("Q_REMOTEONLY")) {
+                fprintf(out, ")%s\n{\n"
+                        "    qt_remote_metacall(%s, QMetaObject::RemoteInvokeMetaMethod, %d,nullptr);\n"
+                        , constQualifier, thisPtr.constData(), index);
+                fprintf(out, "\n}\n");
+                return;
+            }else{
+                fprintf(out, ")%s\n{\n"
+                        "    QMetaObject::activate(%s, &staticMetaObject, %d, nullptr);\n"
+                        "}\n", constQualifier, thisPtr.constData(), index);
+            }
+        } else {
+            fprintf(out, ")%s\n{\n"
+                    "    QMetaObject::activate(%s, &staticMetaObject, %d, nullptr);\n"
+                    "}\n", constQualifier, thisPtr.constData(), index);
+        }
         return;
     }
 
@@ -1537,8 +1573,18 @@ void Generator::generateSignal(FunctionDef *def,int index)
             fprintf(out, ", ");
         fprintf(out, "QPrivateSignal _t%d", offset++);
     }
-
-    fprintf(out, ")%s\n{\n", constQualifier);
+    // TODO: Take Over right here with hasQRemote from line 1573 of other file
+    if(!cdef->hasQRemote && (def->tag.contains("Q_REMOTEONLY"))){
+            fprintf(out, ")%s{\n", constQualifier);
+            for (int j = 1; j <= def->arguments.count(); ++j) {
+                fprintf(out, "Q_UNUSED(_t%d);", j);
+            }
+            fprintf(out, "\n}\n");
+            return;
+    }
+    else{
+        fprintf(out, ")%s\n{\n", constQualifier);
+    }
     if (def->type.name.size() && def->normalizedType != "void") {
         QByteArray returnType = noRef(def->normalizedType);
         fprintf(out, "    %s _t0{};\n", returnType.constData());
@@ -1560,7 +1606,14 @@ void Generator::generateSignal(FunctionDef *def,int index)
         else
             fprintf(out, ", const_cast<void*>(reinterpret_cast<const void*>(&_t%d))", i);
     fprintf(out, " };\n");
-    fprintf(out, "    QMetaObject::activate(%s, &staticMetaObject, %d, _a);\n", thisPtr.constData(), index);
+    if(def->tag.contains("Q_REMOTE")){
+        fprintf(out, "    QMetaObject::activate(%s, &staticMetaObject, %d, _a);\n", thisPtr.constData(), index);
+        fprintf(out, "    qt_remote_metacall(%s, QMetaObject::RemoteInvokeMetaMethod, %d, _a);\n", thisPtr.constData(), index);
+    } else if(def->tag.contains("Q_REMOTEONLY")){
+        fprintf(out, "    qt_remote_metacall(%s, QMetaObject::RemoteInvokeMetaMethod, %d, _a);\n", thisPtr.constData(), index);
+    } else {
+        fprintf(out, "    QMetaObject::activate(%s, &staticMetaObject, %d, _a);\n", thisPtr.constData(), index);
+    }
     if (def->normalizedType != "void")
         fprintf(out, "    return _t0;\n");
     fprintf(out, "}\n");

@@ -694,6 +694,9 @@ void Moc::parse()
                     case Q_OBJECT_TOKEN:
                         def.hasQObject = true;
                         break;
+                    case Q_REMOTE_TOKEN:
+                        def.hasQObject = true;
+                        break;
                     case Q_GADGET_TOKEN:
                         def.hasQGadget = true;
                         break;
@@ -701,7 +704,7 @@ void Moc::parse()
                     }
                 }
 
-                if (!def.hasQObject && !def.hasQGadget)
+                if ((!def.hasQObject || !def.hasQRemote) && !def.hasQGadget)
                     continue;
 
                 for (int i = namespaceList.size() - 1; i >= 0; --i)
@@ -766,6 +769,13 @@ void Moc::parse()
                     break;
                 case Q_OBJECT_TOKEN:
                     def.hasQObject = true;
+                    if (templateClass)
+                        error("Template classes not supported by Q_OBJECT");
+                    if (def.classname != "Qt" && def.classname != "QObject" && def.superclassList.isEmpty())
+                        error("Class contains Q_OBJECT macro but does not inherit from QObject");
+                    break;
+                case Q_REMOTE_TOKEN:
+                    def.hasQRemote = true;
                     if (templateClass)
                         error("Template classes not supported by Q_OBJECT");
                     if (def.classname != "Qt" && def.classname != "QObject" && def.superclassList.isEmpty())
